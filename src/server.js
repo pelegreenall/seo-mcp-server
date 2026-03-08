@@ -1,5 +1,6 @@
-const { Server } = require("@modelcontextprotocol/sdk/server");
+const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
+const { ListToolsRequestSchema, CallToolRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
 const tools = require("./tools");
 
 // ─── Server instance ─────────────────────────────────────────────────────────
@@ -11,13 +12,13 @@ const server = new Server(
 
 // ─── tools/list ──────────────────────────────────────────────────────────────
 
-server.setRequestHandler({ method: "tools/list" }, async () => ({
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((t) => t.schema),
 }));
 
 // ─── tools/call ──────────────────────────────────────────────────────────────
 
-server.setRequestHandler({ method: "tools/call" }, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const tool = tools.find((t) => t.schema.name === name);
 

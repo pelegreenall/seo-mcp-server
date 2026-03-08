@@ -13,6 +13,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "cheerio": "^1.2.0",
+    "mammoth": "^1.11.0",
     "node-fetch": "^3.3.2"
   },
   "bin": {

@@ -1,6 +1,6 @@
 # SEO Content Analysis MCP
 
-An MCP server for Claude Co-work that gives Claude the tools to do a full SEO audit on **unpublished** HTML or Markdown content.
+An MCP server for Claude Desktop that gives Claude the tools to do a full SEO audit on **unpublished** HTML or Markdown content.
 
 ---
 
@@ -21,30 +21,30 @@ An MCP server for Claude Co-work that gives Claude the tools to do a full SEO au
 ### 1. Install dependencies
 
 ```bash
-cd seo-mcp
+cd seo-mcp-server
 npm install
 ```
 
-### 2. Add to Claude Co-work
+### 2. Add to Claude Desktop
 
-In Claude Co-work, open **Settings > MCP Servers** and add a new server with this config:
+Open your `claude_desktop_config.json` and add:
 
 ```json
 {
   "mcpServers": {
     "seo-content-analysis": {
       "command": "node",
-      "args": ["/absolute/path/to/seo-mcp/index.js"]
+      "args": ["/absolute/path/to/seo-mcp-server/src/index.js"]
     }
   }
 }
 ```
 
-Replace `/absolute/path/to/seo-mcp/` with the actual path on your machine.
+Replace `/absolute/path/to/seo-mcp-server/` with the actual path on your machine.
 
-### 3. Restart Claude Co-work
+### 3. Restart Claude Desktop
 
-After adding the server, restart Co-work. You should see the 5 SEO tools available.
+After saving the config, restart Claude Desktop. You should see the 5 SEO tools available.
 
 ---
 
@@ -60,9 +60,33 @@ Once connected, you can ask Claude things like:
 
 ---
 
+## Project structure
+
+```
+seo-mcp-server/
+├── src/
+│   ├── index.js              # Entry point
+│   ├── server.js             # MCP server setup & request routing
+│   ├── utils/
+│   │   └── content.js        # Shared helpers (parsing, text analysis)
+│   └── tools/
+│       ├── index.js          # Auto-discovers and loads all tool modules
+│       ├── analyseContent.js
+│       ├── checkKeywordDensity.js
+│       ├── checkReadability.js
+│       ├── suggestMetaTags.js
+│       └── checkHeadingStructure.js
+├── package.json
+└── README.md
+```
+
+> **Adding a new tool:** create a new file in `src/tools/` that exports `{ schema, handler }` — nothing else needs changing.
+
+---
+
 ## Dependencies
 
-- `@modelcontextprotocol/sdk` - MCP server framework
-- `cheerio` - HTML parsing (also handles plain text / Markdown)
+- `@modelcontextprotocol/sdk` — MCP server framework
+- `cheerio` — HTML parsing (also handles plain text / Markdown)
 
 Both are installed via `npm install`.
