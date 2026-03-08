@@ -1,4 +1,7 @@
+const fs = require("fs");
+const path = require("path");
 const { parseContent } = require("../utils/content");
+const { extractHtmlFromDocx } = require("../utils/docx");
 
 const schema = {
     name: "check_heading_structure",
@@ -11,13 +14,35 @@ const schema = {
                 type: "string",
                 description: "The raw HTML or Markdown content",
             },
+            filepath: {
+                type: "string",
+                description: "Absolute path to a local file (.docx, .html, .md, .txt)",
+            },
         },
-        required: ["content"],
+        required: [],
     },
 };
 
-function handler({ content }) {
-    const { $ } = parseContent(content);
+async function handler({ content, filepath }) {
+    let rawContent = content;
+
+    if (filepath) {
+        if (!fs.existsSync(filepath)) {
+            throw new Error(`File not found: ${filepath}`);
+        }
+        const ext = path.extname(filepath).toLowerCase();
+        if (ext === ".docx") {
+            rawContent = await extractHtmlFromDocx(filepath);
+        } else {
+            rawContent = fs.readFileSync(filepath, "utf8");
+        }
+    }
+
+    if (!rawContent) {
+        throw new Error("No content provided (provide 'content' or a valid 'filepath')");
+    }
+
+    const { $ } = parseContent(rawContent);
 
     const headings = [];
     $("h1, h2, h3, h4, h5, h6").each((_, el) => {

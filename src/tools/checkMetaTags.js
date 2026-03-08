@@ -1,4 +1,7 @@
-const { parseContent, keywordInText } = require("../utils/content");
+const fs = require("fs");
+const path = require("path");
+const { parseContent } = require("../utils/content");
+const { extractHtmlFromDocx } = require("../utils/docx");
 
 const schema = {
     name: "check_meta_tags",
@@ -11,23 +14,47 @@ const schema = {
                 type: "string",
                 description: "The raw HTML content to check meta tags in",
             },
+            filepath: {
+                type: "string",
+                description: "Absolute path to a local file (.docx, .html, .md, .txt)",
+            },
             primary_keyword: {
                 type: "string",
                 description:
                     "Optional. The keyword to check for inside the title and meta description.",
             },
         },
-        required: ["content"],
+        required: [],
     },
 };
 
-function handler({ content, primary_keyword }) {
-    const { $, isHtml } = parseContent(content);
+async function handler({ content, filepath, primary_keyword }) {
+    let rawContent = content;
+    let originalExt = null;
 
-    if (!isHtml) {
+    if (filepath) {
+        if (!fs.existsSync(filepath)) {
+            throw new Error(`File not found: ${filepath}`);
+        }
+        originalExt = path.extname(filepath).toLowerCase();
+        if (originalExt === ".docx") {
+            rawContent = await extractHtmlFromDocx(filepath);
+        } else {
+            rawContent = fs.readFileSync(filepath, "utf8");
+        }
+    }
+
+    if (!rawContent) {
+        throw new Error("No content provided (provide 'content' or a valid 'filepath')");
+    }
+
+    const { $, isHtml } = parseContent(rawContent);
+    const extUsed = originalExt || (isHtml ? ".html" : ".md");
+
+    if (!isHtml || extUsed === ".docx") {
         return {
             error:
-                "This tool requires HTML content with <title> and <meta> tags. For Markdown content, use suggest_meta_tags instead.",
+                `This tool requires HTML structured with <title> and <meta> tags. The provided ${extUsed === ".docx" ? "Word document" : "content"} only contains body text. For Word/Markdown files, use suggest_meta_tags to generate new tags based on the text instead.`,
         };
     }
 

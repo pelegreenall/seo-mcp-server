@@ -30,11 +30,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     try {
-        const result = tool.handler(args);
+        const { filepath } = args || {};
+
+        // Detect upload paths (Claude sandbox) — can't be accessed by local server
+        if (filepath && (filepath.startsWith("/mnt/user-data/uploads/") || filepath.startsWith("/mnt/"))) {
+            return {
+                content: [{ type: "text", text: `Error: The path "${filepath}" is an internal Claude upload path that cannot be accessed by the local MCP server. To analyse an uploaded file, paste the file's text content directly into the "content" parameter instead. For .docx files, provide the full local disk path (e.g. C:\\Users\\peleg\\Documents\\file.docx).` }],
+                isError: true,
+            };
+        }
+
+        const result = await tool.handler(args);
         return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
     } catch (err) {
+        console.error(`[${name}] Error:`, err.message);
         return {
             content: [{ type: "text", text: `Error: ${err.message}` }],
             isError: true,

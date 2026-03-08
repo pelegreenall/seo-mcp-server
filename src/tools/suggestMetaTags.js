@@ -1,4 +1,7 @@
+const fs = require("fs");
+const path = require("path");
 const { parseContent, extractPlainText } = require("../utils/content");
+const { extractHtmlFromDocx } = require("../utils/docx");
 
 const schema = {
     name: "suggest_meta_tags",
@@ -11,6 +14,10 @@ const schema = {
                 type: "string",
                 description: "The raw HTML or Markdown content",
             },
+            filepath: {
+                type: "string",
+                description: "Absolute path to a local file (.docx, .html, .md, .txt)",
+            },
             primary_keyword: {
                 type: "string",
                 description: "The main keyword to optimise meta tags around",
@@ -21,12 +28,30 @@ const schema = {
                     "Optional audience descriptor to include in title formulas (e.g. 'BI analysts')",
             },
         },
-        required: ["content"],
+        required: [],
     },
 };
 
-function handler({ content, primary_keyword, target_audience }) {
-    const { $, isHtml } = parseContent(content);
+async function handler({ content, filepath, primary_keyword, target_audience }) {
+    let rawContent = content;
+
+    if (filepath) {
+        if (!fs.existsSync(filepath)) {
+            throw new Error(`File not found: ${filepath}`);
+        }
+        const ext = path.extname(filepath).toLowerCase();
+        if (ext === ".docx") {
+            rawContent = await extractHtmlFromDocx(filepath);
+        } else {
+            rawContent = fs.readFileSync(filepath, "utf8");
+        }
+    }
+
+    if (!rawContent) {
+        throw new Error("No content provided (provide 'content' or a valid 'filepath')");
+    }
+
+    const { $, isHtml } = parseContent(rawContent);
     const plain = extractPlainText($);
 
     const existingTitle = $("title").text().trim() || null;
