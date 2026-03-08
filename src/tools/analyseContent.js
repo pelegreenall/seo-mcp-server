@@ -30,21 +30,29 @@ const schema = {
                 items: { type: "string" },
                 description: "Supporting keywords to check for (optional)",
             },
+            meta_title: {
+                type: "string",
+                description: "Optional. Manually provided meta title to audit (e.g. for non-HTML files).",
+            },
+            meta_description: {
+                type: "string",
+                description: "Optional. Manually provided meta description to audit.",
+            },
         },
         required: [],
     },
 };
 
-async function handler({ content, filepath, primary_keyword, secondary_keywords = [] }) {
+async function handler({ content, filepath, primary_keyword, secondary_keywords = [], meta_title, meta_description }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
     const plain = extractPlainText($);
     const wordCount = countWords(plain);
 
-    // --- Title / meta (only meaningful for HTML) ---
-    const titleTag = $("title").text().trim() || null;
-    const metaDesc =
+    // --- Title / meta (prioritize manually provided, then look in HTML) ---
+    const titleTag = meta_title || $("title").text().trim() || null;
+    const metaDesc = meta_description ||
         $('meta[name="description"]').attr("content")?.trim() || null;
 
     // --- Headings ---

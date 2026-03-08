@@ -63,7 +63,6 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
   - Title: **30–60 characters** — under 30 is too short, over 60 gets truncated in SERPs
   - Meta description: **120–160 characters** — under 70 is too short, over 160 gets truncated
 
-**Smart Meta Extraction:** The tools automatically detect `Meta Title:` / `Meta Description:` patterns and Word table rows — so if these are in the document they'll be picked up automatically without needing HTML tags.
 
 ### `check_keyword_density`
 - **0%** — keyword is missing entirely, add it
@@ -91,7 +90,7 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
 ## Workflow for a full SEO review
 
 1. **Pre-flight**: If the content is uploaded as a document (not HTML), ask for meta title + description before proceeding (see above)
-2. Run `calculate_seo_score` — pass `primary_keyword` and any meta tags the user provided as part of the `content` string using `Meta Title: ...` / `Meta Description: ...` format at the top
+2. Run `calculate_seo_score` — pass `primary_keyword` and any meta tags the user provided.
 3. Share the score, grade, and category breakdown
 4. Run `check_meta_tags` if the content is HTML with existing tags, otherwise skip and move to step 5
    - If tags are **missing and user declined to provide them** → offer to generate them via `suggest_meta_tags`
@@ -111,7 +110,4 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
 - **For uploaded files**: extract the full text content from the file and pass it as the `content` parameter instead.
 - `secondary_keywords` in `analyse_content` is optional but useful for topic-cluster content
 - `check_meta_tags` only works on HTML with `<title>` / `<meta>` tags. For Markdown or `.docx` input it will return a clear error directing you to use `suggest_meta_tags` instead.
-- **Heuristic Detection**: For Word/Markdown files, the tools will search for `Meta Title:` and `Meta Description:` patterns in the body text to populate these fields.
-- **Accuracy Tip**: For Word (.docx) files, providing the absolute `filepath` (e.g. `C:\docs\post.docx`) is preferred over uploading the file to the chat. This allows the server to read the binary file directly and preserve heading structures more accurately.
-- For plain Markdown, `title_tag` and `meta_description` fields in `analyse_content` will be `null` if no heuristic match is found — that's expected; focus on H1 and body keyword checks instead.
 - Don't flag `N/A` values as issues — they simply mean the check doesn't apply to the content type

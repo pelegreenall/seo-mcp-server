@@ -27,13 +27,21 @@ const schema = {
                 description:
                     "The main keyword this content should rank for. Required for keyword optimisation scoring.",
             },
+            meta_title: {
+                type: "string",
+                description: "Optional. Manually provided meta title to include in scoring (e.g. for non-HTML files).",
+            },
+            meta_description: {
+                type: "string",
+                description: "Optional. Manually provided meta description to include in scoring.",
+            },
         },
         // Either content or filepath must be provided, but we'll validate in handler
         required: [],
     },
 };
 
-async function handler({ content, filepath, primary_keyword }) {
+async function handler({ content, filepath, primary_keyword, meta_title, meta_description }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
@@ -43,9 +51,9 @@ async function handler({ content, filepath, primary_keyword }) {
 
     // ─── Collect raw data ─────────────────────────────────────────────────────
 
-    // Meta
-    const titleText = $("title").text().trim() || null;
-    const metaDescText =
+    // Meta (prioritize manually provided, then look in HTML)
+    const titleText = meta_title || $("title").text().trim() || null;
+    const metaDescText = meta_description ||
         $('meta[name="description"]').attr("content")?.trim() || null;
 
     // Headings

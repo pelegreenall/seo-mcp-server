@@ -22,22 +22,32 @@ const schema = {
                 description:
                     "Optional. The keyword to check for inside the title and meta description.",
             },
+            meta_title: {
+                type: "string",
+                description: "Optional. Manually provided meta title to validate.",
+            },
+            meta_description: {
+                type: "string",
+                description: "Optional. Manually provided meta description to validate.",
+            },
         },
         required: [],
     },
 };
 
-async function handler({ content, filepath, primary_keyword }) {
+async function handler({ content, filepath, primary_keyword, meta_title, meta_description }) {
     const rawContent = await loadContent({ content, filepath });
     const originalExt = filepath ? path.extname(filepath).toLowerCase() : null;
 
     const { $, isHtml } = parseContent(rawContent);
     const extUsed = originalExt || (isHtml ? ".html" : ".md");
 
-    if (!isHtml || extUsed === ".docx") {
+    // Require either HTML with tags OR manually provided tags
+    const hasManualTags = !!(meta_title || meta_description);
+    if (!isHtml && !hasManualTags) {
         return {
             error:
-                `This tool requires HTML structured with <title> and <meta> tags. The provided ${extUsed === ".docx" ? "Word document" : "content"} only contains body text. For Word/Markdown files, use suggest_meta_tags to generate new tags based on the text instead.`,
+                `This tool requires HTML structured with <title> and <meta> tags, or manually provided tags via 'meta_title' and 'meta_description'.`,
         };
     }
 
@@ -45,8 +55,8 @@ async function handler({ content, filepath, primary_keyword }) {
 
     // ── Title tag ─────────────────────────────────────────────────────────────
 
-    const titleText = $("title").text().trim() || null;
-    const titleCount = $("title").length;
+    const titleText = meta_title || $("title").text().trim() || null;
+    const titleCount = meta_title ? 1 : $("title").length;
 
     const titleIssues = [];
     if (titleCount === 0) titleIssues.push("No <title> tag found");
@@ -62,9 +72,8 @@ async function handler({ content, filepath, primary_keyword }) {
 
     // ── Meta description ──────────────────────────────────────────────────────
 
-    const metaDescEl = $('meta[name="description"]');
-    const metaDescText = metaDescEl.attr("content")?.trim() || null;
-    const metaDescCount = $('meta[name="description"]').length;
+    const metaDescText = meta_description || $('meta[name="description"]').attr("content")?.trim() || null;
+    const metaDescCount = meta_description ? 1 : $('meta[name="description"]').length;
 
     const metaIssues = [];
     if (metaDescCount === 0) metaIssues.push("No meta description found");

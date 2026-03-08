@@ -45,6 +45,14 @@ Open `%APPDATA%\Claude\claude_desktop_config.json` and add:
 
 After saving the config, restart Claude Desktop. You should see 7 SEO tools available in the tools palette.
 
+### 4. Activate SEO Skill (Recommended)
+
+To ensure Claude follows the correct workflow (asking for keywords/meta tags before auditing), you should provide it with the instructions in `SKILL.md`.
+
+1. Make a copy of `SKILL.md` and name it `seo-content-analysis.md`.
+2. Upload this file to your Claude chat or add it to your **Project Knowledge** (if using Claude Projects).
+3. If you uploaded it to a chat, ask Claude: *"Read seo-content-analysis.md and follow these pre-flight instructions for all SEO audits in this thread."*
+
 ---
 
 ## Usage
@@ -65,11 +73,14 @@ Tools accept either:
 
 > **Note:** Files uploaded via the Claude chat interface cannot be accessed as a `filepath`. Paste the text content directly instead.
 
-### Meta tag heuristics
+### Workflow
 
-For Word/Markdown files that don't have HTML `<title>` / `<meta>` tags, the tools will detect meta tags written in your document using:
-- A table with "Meta Title" / "Meta Description" label-value rows
-- Inline text like `Meta Title: Your title here`
+For the most accurate score, Claude will ask for two things before running the audit on a non-HTML document:
+
+1. **Primary keyword** — needed for 30/100 of the score (keyword optimisation category)
+2. **Meta title + description** — needed for 25/100 (Technical SEO category)
+
+If these are not in your document, Claude will ask for them during the pre-flight check.
 
 ---
 
@@ -93,7 +104,7 @@ seo-mcp-server/
 │       ├── checkMetaTags.js
 │       ├── suggestMetaTags.js
 │       └── checkHeadingStructure.js
-├── SKILL.md                  # AI assistant instructions for using these tools
+├── SKILL.md                  # Master instructions for Claude (copy and rename to use)
 ├── package.json
 └── README.md
 ```
