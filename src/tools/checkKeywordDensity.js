@@ -1,11 +1,9 @@
-const fs = require("fs");
-const path = require("path");
 const {
     parseContent,
     extractPlainText,
     countWords,
 } = require("../utils/content");
-const { extractHtmlFromDocx } = require("../utils/docx");
+const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "check_keyword_density",

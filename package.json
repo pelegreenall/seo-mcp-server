@@ -1,7 +1,7 @@
 {
   "name": "seo-mcp",
   "version": "1.0.0",
-  "description": "",
+  "description": "MCP server for Claude Desktop — SEO audit tools for unpublished HTML, Markdown, and Word (.docx) content.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

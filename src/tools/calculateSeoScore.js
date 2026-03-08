@@ -1,5 +1,3 @@
-const fs = require("fs");
-const path = require("path");
 const {
     parseContent,
     extractPlainText,
@@ -7,7 +5,7 @@ const {
     avg,
     keywordInText,
 } = require("../utils/content");
-const { extractHtmlFromDocx } = require("../utils/docx");
+const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "calculate_seo_score",
@@ -36,23 +34,7 @@ const schema = {
 };
 
 async function handler({ content, filepath, primary_keyword }) {
-    let rawContent = content;
-
-    if (filepath) {
-        if (!fs.existsSync(filepath)) {
-            throw new Error(`File not found: ${filepath}`);
-        }
-        const ext = path.extname(filepath).toLowerCase();
-        if (ext === ".docx") {
-            rawContent = await extractHtmlFromDocx(filepath);
-        } else {
-            rawContent = fs.readFileSync(filepath, "utf8");
-        }
-    }
-
-    if (!rawContent) {
-        throw new Error("No content provided (provide 'content' or a valid 'filepath')");
-    }
+    const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
     const plain = extractPlainText($);

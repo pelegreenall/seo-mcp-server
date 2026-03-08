@@ -1,7 +1,6 @@
-const fs = require("fs");
 const path = require("path");
 const { parseContent } = require("../utils/content");
-const { extractHtmlFromDocx } = require("../utils/docx");
+const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "check_meta_tags",
@@ -29,24 +28,8 @@ const schema = {
 };
 
 async function handler({ content, filepath, primary_keyword }) {
-    let rawContent = content;
-    let originalExt = null;
-
-    if (filepath) {
-        if (!fs.existsSync(filepath)) {
-            throw new Error(`File not found: ${filepath}`);
-        }
-        originalExt = path.extname(filepath).toLowerCase();
-        if (originalExt === ".docx") {
-            rawContent = await extractHtmlFromDocx(filepath);
-        } else {
-            rawContent = fs.readFileSync(filepath, "utf8");
-        }
-    }
-
-    if (!rawContent) {
-        throw new Error("No content provided (provide 'content' or a valid 'filepath')");
-    }
+    const rawContent = await loadContent({ content, filepath });
+    const originalExt = filepath ? path.extname(filepath).toLowerCase() : null;
 
     const { $, isHtml } = parseContent(rawContent);
     const extUsed = originalExt || (isHtml ? ".html" : ".md");

@@ -9,13 +9,15 @@ Use these tools when the user provides **unpublished** content (a draft blog pos
 
 ---
 
-## Pre-flight: Ask for meta tags before starting
+## Pre-flight: Ask for missing inputs before starting
 
-When the user uploads or pastes a document that is **not HTML** (i.e. it has no `<title>` or `<meta>` tags), you must ask for the meta tags **before running any tools**:
+When the user uploads or pastes a document that is **not HTML**, ask for any missing inputs **before running any tools**:
 
-> "Before I run the audit, do you have a planned **meta title** and **meta description** for this piece? If so, share them and I'll include them in the analysis. If not, I'll flag them as missing and suggest options after."
+> "Before I run the audit, I just need a couple of things:
+> 1. **Primary keyword** — what is the main keyword this piece should rank for? *(e.g. 'cohort analysis for analysts')*
+> 2. **Meta title and meta description** — do you have planned versions of these? If so, share them and I'll include them in the score. If not, I'll flag them as missing and suggest options after."
 
-Only proceed once you have their answer (or they say they don't have them yet). This prevents the Technical SEO score from unfairly showing 0/25 when the tags simply aren't in the document format.
+Only proceed once you have their answers (or they confirm they don't have them yet). The primary keyword is needed for 30/100 of the score; the meta tags are needed for 25/100 — asking upfront prevents an artificially low score.
 
 ---
 
