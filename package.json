@@ -1,0 +1,21 @@
+{
+  "name": "seo-mcp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "cheerio": "^1.2.0",
+    "node-fetch": "^3.3.2"
+  },
+  "bin": {
+    "seo-mcp": "./src/index.js"
+  }
+}
