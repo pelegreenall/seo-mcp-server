@@ -20,6 +20,11 @@ async function loadContent({ content, filepath }) {
         if (ext === ".docx") {
             return extractHtmlFromDocx(filepath);
         }
+        if (ext === ".tsx" || ext === ".jsx") {
+            const { handler } = require("../tools/convertTsxToHtml");
+            const result = await handler({ filepath });
+            return result.html;
+        }
         return fs.readFileSync(filepath, "utf8");
     }
 

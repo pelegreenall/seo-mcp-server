@@ -4,7 +4,7 @@ const { loadContent } = require("../utils/loader");
 const schema = {
     name: "suggest_meta_tags",
     description:
-        "Generate optimised title tag, meta description, and URL slug suggestions for unpublished content based on the primary keyword and existing copy.",
+        "Generate optimised title tag, meta description, and URL slug suggestions for unpublished content based on the primary keyword, secondary keywords, and existing copy.",
     inputSchema: {
         type: "object",
         properties: {
@@ -20,6 +20,13 @@ const schema = {
                 type: "string",
                 description: "The main keyword to optimise meta tags around",
             },
+            secondary_keywords: {
+                type: "array",
+                items: {
+                    type: "string"
+                },
+                description: "Optional list of secondary keywords to include in suggestions",
+            },
             target_audience: {
                 type: "string",
                 description:
@@ -30,7 +37,36 @@ const schema = {
     },
 };
 
-async function handler({ content, filepath, primary_keyword, target_audience }) {
+// Helpers
+function toTitleCase(str) {
+    if (!str) return "";
+    return str.toLowerCase().split(' ').map(function(word) {
+        return (word.charAt(0).toUpperCase() + word.slice(1));
+    }).join(' ');
+}
+
+function removeStopWords(slugBase) {
+    const stopWords = new Set(["a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from", "by", "of", "in", "with", "is", "it"]);
+    return slugBase
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .split(/\s+/)
+        .filter(word => !stopWords.has(word) && word.length > 0)
+        .join("-");
+}
+
+function extractRelevantSentence(text, keyword) {
+    if (!keyword || !text) return null;
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    for (const sentence of sentences) {
+        if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
+            return sentence.trim();
+        }
+    }
+    return null;
+}
+
+async function handler({ content, filepath, primary_keyword, secondary_keywords = [], target_audience }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
@@ -43,44 +79,60 @@ async function handler({ content, filepath, primary_keyword, target_audience }) 
     const h1Text = $("h1").first().text().trim() || null;
     const firstPara = $("p").first().text().trim() || plain.slice(0, 300);
     const kw = primary_keyword || "";
+    const kwTitle = toTitleCase(kw);
+    const secKw = secondary_keywords.length > 0 ? toTitleCase(secondary_keywords[0]) : "";
+    const currentYear = new Date().getFullYear();
 
-    // Build title suggestions
+    // 1. Build title suggestions
     const titleSuggestions = [];
     if (kw) {
-        const cap = kw.charAt(0).toUpperCase() + kw.slice(1);
-        titleSuggestions.push(`${cap}: A Complete Guide`);
+        // Base title from keyword
+        let base1 = `${kwTitle}: A Complete Guide`;
+        if (base1.length <= 53) base1 += ` [${currentYear}]`;
+        titleSuggestions.push(base1);
+        
         if (target_audience) {
-            titleSuggestions.push(
-                `How to ${cap} | Guide for ${target_audience}`
-            );
+            let baseAud = `How to Master ${kwTitle} | Guide for ${toTitleCase(target_audience)}`;
+            titleSuggestions.push(baseAud);
         }
-        titleSuggestions.push(`${cap}: What You Need to Know`);
+        
+        if (secKw) {
+            let baseSec = `${kwTitle}: Top ${secKw} Strategies`;
+            if (baseSec.length <= 53) baseSec += ` (${currentYear})`;
+            titleSuggestions.push(baseSec);
+        }
+
+        // Action oriented
+        titleSuggestions.push(`${kwTitle}: Everything You Need to Know`);
     } else if (h1Text) {
-        titleSuggestions.push(h1Text.slice(0, 60));
+        let t = h1Text.slice(0, 60);
+        titleSuggestions.push(t);
     } else {
         titleSuggestions.push("Add a primary keyword to get title suggestions");
     }
 
-    // Build meta description suggestion
+    // 2. Build meta description suggestion
     let metaSuggestion = "";
-    if (kw && firstPara) {
-        const condensed = firstPara.slice(0, 120).trim();
-        const cap = kw.charAt(0).toUpperCase() + kw.slice(1);
-        metaSuggestion = `${cap}: ${condensed}...`;
+    if (kw) {
+        const sentence = extractRelevantSentence(plain, kw);
+        if (sentence && sentence.length > 50) {
+            metaSuggestion = sentence;
+            if (metaSuggestion.length > 155) {
+                metaSuggestion = metaSuggestion.slice(0, 155).trim() + "...";
+            }
+        } else {
+            // Smart template fallback
+            const audienceText = target_audience ? ` for ${target_audience}` : "";
+            metaSuggestion = `Learn everything you need to know about ${kw.toLowerCase()}${audienceText}. Discover best practices, strategies, and key insights in this complete guide.`;
+        }
     } else if (firstPara) {
         metaSuggestion = firstPara.slice(0, 155).trim() + "...";
     }
 
-    // URL slug from keyword or h1
+    // 3. URL slug from keyword or h1
     const slugBase = kw || h1Text || "your-page-title";
-    const slug =
-        "/blog/" +
-        slugBase
-            .toLowerCase()
-            .replace(/[^a-z0-9\s-]/g, "")
-            .trim()
-            .replace(/\s+/g, "-")
-            .slice(0, 60);
+    let slugPath = removeStopWords(slugBase);
+    const slug = "/blog/" + slugPath.slice(0, 60);
 
     const checks = {
         title_within_60_chars: titleSuggestions[0]?.length <= 60,

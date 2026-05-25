@@ -6,11 +6,14 @@ const {
     keywordInText,
 } = require("../utils/content");
 const { loadContent } = require("../utils/loader");
+const { handler: analyzeLinks } = require("./analyzeLinks");
+const { handler: checkSemanticCoverage } = require("./checkSemanticCoverage");
+const { handler: checkSnippetOptimization } = require("./checkSnippetOptimization");
 
 const schema = {
     name: "calculate_seo_score",
     description:
-        "Calculate an overall SEO score out of 100 for the provided content. Covers technical SEO (meta tags), keyword optimisation, content structure, and readability. Returns a score, grade, category breakdown, and a prioritised list of what to fix.",
+        "Calculate an overall SEO score (Mega Score) that aligns with modern Google algorithms. Covers Semantic Authority, Link Profile, Content Structure, and more.",
     inputSchema: {
         type: "object",
         properties: {
@@ -27,21 +30,25 @@ const schema = {
                 description:
                     "The main keyword this content should rank for. Required for keyword optimisation scoring.",
             },
+            expected_terms: {
+                type: "array",
+                items: { type: "string" },
+                description: "CRITICAL: List of LSI / related semantic terms expected in the content for Topical Authority scoring. If the user provides a primary_keyword but no expected_terms, YOU MUST use your internal knowledge to generate 5-10 highly relevant LSI keywords and pass them in here automatically.",
+            },
             meta_title: {
                 type: "string",
-                description: "Optional. Manually provided meta title to include in scoring (e.g. for non-HTML files).",
+                description: "Optional. Manually provided meta title to include in scoring.",
             },
             meta_description: {
                 type: "string",
                 description: "Optional. Manually provided meta description to include in scoring.",
             },
         },
-        // Either content or filepath must be provided, but we'll validate in handler
         required: [],
     },
 };
 
-async function handler({ content, filepath, primary_keyword, meta_title, meta_description }) {
+async function handler({ content, filepath, primary_keyword, expected_terms, meta_title, meta_description }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
@@ -51,7 +58,7 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
 
     // ─── Collect raw data ─────────────────────────────────────────────────────
 
-    // Meta (prioritize manually provided, then look in HTML)
+    // Meta
     const titleText = meta_title || $("title").text().trim() || null;
     const metaDescText = meta_description ||
         $('meta[name="description"]').attr("content")?.trim() || null;
@@ -65,7 +72,6 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     const h1s = headings.filter((h) => h.level === 1);
     const h2s = headings.filter((h) => h.level === 2);
 
-    // Hierarchy clean?
     let hierarchyClean = true;
     let prevLevel = 0;
     for (const h of headings) {
@@ -77,8 +83,6 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     }
 
     // Keyword checks
-    const kwCountBody = kw ? keywordInText(kw, plain) : 0;
-    const kwDensity = kw && wordCount > 0 ? (kwCountBody / wordCount) * 100 : 0;
     const kwInTitle = kw && titleText
         ? titleText.toLowerCase().includes(kw)
         : kw && h1s.length
@@ -97,7 +101,6 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     const kwInMeta = kw && metaDescText
         ? metaDescText.toLowerCase().includes(kw)
         : false;
-    const kwDensityGood = kwDensity >= 0.5 && kwDensity <= 2.0;
 
     // Readability (Flesch)
     const sentences = plain
@@ -128,8 +131,16 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
             )
             : 0;
 
-    // ─── Scoring ──────────────────────────────────────────────────────────────
+    // Run external tools
+    const linkResults = await analyzeLinks({ content, filepath });
+    const snippetResults = await checkSnippetOptimization({ content, filepath });
+    
+    let semanticResults = null;
+    if (expected_terms && expected_terms.length > 0) {
+        semanticResults = await checkSemanticCoverage({ content, filepath, expected_terms });
+    }
 
+    // ─── Scoring ──────────────────────────────────────────────────────────────
     const checks = [];
     let totalEarned = 0;
 
@@ -138,101 +149,69 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
         checks.push({ category, label, earned, max, passed, fix });
     }
 
-    // --- Technical SEO (25 pts) ---
+    // --- Technical SEO (20 pts) ---
     const hasTitle = !!titleText;
-    const titleLengthOk = titleText
-        ? titleText.length >= 30 && titleText.length <= 60
-        : false;
+    const titleLengthOk = titleText ? titleText.length >= 30 && titleText.length <= 60 : false;
     const hasMetaDesc = !!metaDescText;
-    const metaLengthOk = metaDescText
-        ? metaDescText.length >= 120 && metaDescText.length <= 160
-        : false;
+    const metaLengthOk = metaDescText ? metaDescText.length >= 120 && metaDescText.length <= 160 : false;
 
-    check("Technical SEO", "Title tag present", hasTitle ? 8 : 0, 8, hasTitle,
-        hasTitle ? null : "Add a <title> tag to your HTML");
-    check("Technical SEO", "Title length (30–60 chars)", titleLengthOk ? 5 : 0, 5, titleLengthOk,
-        titleText
-            ? titleText.length < 30
-                ? `Title is too short (${titleText.length} chars) — expand to 30–60`
-                : `Title is too long (${titleText.length} chars) — trim to under 60`
-            : "Add a title first");
-    check("Technical SEO", "Meta description present", hasMetaDesc ? 8 : 0, 8, hasMetaDesc,
-        hasMetaDesc ? null : "Add a meta description tag");
-    check("Technical SEO", "Meta description length (120–160 chars)", metaLengthOk ? 4 : 0, 4, metaLengthOk,
-        metaDescText
-            ? metaDescText.length < 120
-                ? `Meta description is too short (${metaDescText.length} chars) — expand to 120–160`
-                : `Meta description is too long (${metaDescText.length} chars) — trim to under 160`
-            : "Add a meta description first");
+    check("Technical SEO", "Title tag present", hasTitle ? 6 : 0, 6, hasTitle, hasTitle ? null : "Add a <title> tag");
+    check("Technical SEO", "Title length (30–60 chars)", titleLengthOk ? 5 : 0, 5, titleLengthOk, titleLengthOk ? null : "Optimize title length (30-60 chars)");
+    check("Technical SEO", "Meta description present", hasMetaDesc ? 6 : 0, 6, hasMetaDesc, hasMetaDesc ? null : "Add a meta description");
+    check("Technical SEO", "Meta description length (120–160 chars)", metaLengthOk ? 3 : 0, 3, metaLengthOk, metaLengthOk ? null : "Optimize meta description length (120-160 chars)");
 
-    // --- Keyword Optimisation (30 pts) ---
+    // --- Keyword Optimisation (25 pts) ---
     if (!kw) {
-        // Skip keyword checks — award 0 for all, mark as N/A
-        check("Keyword Optimisation", "Keyword in title / H1", 0, 8, false,
-            "Provide a primary_keyword to enable keyword scoring");
-        check("Keyword Optimisation", "Keyword in first paragraph", 0, 7, false, null);
-        check("Keyword Optimisation", "Keyword in an H2", 0, 5, false, null);
-        check("Keyword Optimisation", "Keyword in meta description", 0, 5, false, null);
-        check("Keyword Optimisation", "Keyword density (0.5–2%)", 0, 5, false, null);
+        check("Keyword Optimisation", "Keyword in title / H1", 0, 10, false, "Provide a primary_keyword");
+        check("Keyword Optimisation", "Keyword in first paragraph", 0, 8, false, null);
+        check("Keyword Optimisation", "Keyword in an H2", 0, 4, false, null);
+        check("Keyword Optimisation", "Keyword in meta description", 0, 3, false, null);
     } else {
-        check("Keyword Optimisation", "Keyword in title / H1", kwInTitle ? 8 : 0, 8, kwInTitle,
-            kwInTitle ? null : `Add "${primary_keyword}" to your title tag or H1`);
-        check("Keyword Optimisation", "Keyword in first paragraph", kwInFirstParagraph ? 7 : 0, 7, kwInFirstParagraph,
-            kwInFirstParagraph ? null : `Mention "${primary_keyword}" in the opening paragraph`);
-        check("Keyword Optimisation", "Keyword in an H2", kwInH2 ? 5 : 0, 5, kwInH2,
-            kwInH2 ? null : `Include "${primary_keyword}" in at least one H2 subheading`);
-        check("Keyword Optimisation", "Keyword in meta description", kwInMeta ? 5 : 0, 5, kwInMeta,
-            kwInMeta || !isHtml ? null : `Add "${primary_keyword}" to your meta description`);
-        check("Keyword Optimisation", `Keyword density (0.5–2%, currently ${kwDensity.toFixed(2)}%)`,
-            kwDensityGood ? 5 : 0, 5, kwDensityGood,
-            kwDensityGood
-                ? null
-                : kwDensity === 0
-                    ? `Keyword not found in body — add "${primary_keyword}" naturally throughout`
-                    : kwDensity < 0.5
-                        ? `Density too low (${kwDensity.toFixed(2)}%) — use the keyword more often`
-                        : `Density too high (${kwDensity.toFixed(2)}%) — reduce keyword repetition`);
+        check("Keyword Optimisation", "Keyword in title / H1", kwInTitle ? 10 : 0, 10, kwInTitle, kwInTitle ? null : `Add "${primary_keyword}" to your title tag or H1`);
+        check("Keyword Optimisation", "Keyword in first paragraph", kwInFirstParagraph ? 8 : 0, 8, kwInFirstParagraph, kwInFirstParagraph ? null : `Mention "${primary_keyword}" in the opening paragraph`);
+        check("Keyword Optimisation", "Keyword in an H2", kwInH2 ? 4 : 0, 4, kwInH2, kwInH2 ? null : `Include "${primary_keyword}" in at least one H2`);
+        check("Keyword Optimisation", "Keyword in meta description", kwInMeta ? 3 : 0, 3, kwInMeta, kwInMeta || !isHtml ? null : `Add "${primary_keyword}" to your meta description`);
     }
 
     // --- Content Structure (25 pts) ---
     const singleH1 = h1s.length === 1;
     const hasH2s = h2s.length > 0;
 
-    check("Content Structure", "Single H1 tag", singleH1 ? 8 : 0, 8, singleH1,
-        singleH1
-            ? null
-            : h1s.length === 0
-                ? "Add exactly one H1 tag"
-                : `Remove extra H1 tags (found ${h1s.length})`);
-    check("Content Structure", "H2 subheadings present", hasH2s ? 7 : 0, 7, hasH2s,
-        hasH2s ? null : "Add H2 subheadings to structure your content");
-    check("Content Structure", "Heading hierarchy clean", hierarchyClean ? 5 : 0, 5, hierarchyClean,
-        hierarchyClean ? null : "Fix heading levels — don't skip from H1 to H3 etc.");
-    check("Content Structure", `Word count ≥ 700 (currently ${wordCount})`,
-        wordCount >= 700 ? 5 : 0, 5, wordCount >= 700,
-        wordCount >= 700 ? null : `Content is too short (${wordCount} words) — aim for at least 700`);
+    check("Content Structure", "Single H1 tag", singleH1 ? 8 : 0, 8, singleH1, singleH1 ? null : "Ensure exactly one H1 tag");
+    check("Content Structure", "H2 subheadings present", hasH2s ? 7 : 0, 7, hasH2s, hasH2s ? null : "Add H2 subheadings");
+    check("Content Structure", "Heading hierarchy clean", hierarchyClean ? 5 : 0, 5, hierarchyClean, hierarchyClean ? null : "Fix heading hierarchy");
+    check("Content Structure", `Word count ≥ 700 (currently ${wordCount})`, wordCount >= 700 ? 5 : 0, 5, wordCount >= 700, wordCount >= 700 ? null : "Expand content to >= 700 words");
 
-    // --- Readability (20 pts) ---
-    let readabilityPts;
-    let readabilityFix;
-    if (fre >= 70) {
-        readabilityPts = 20;
-        readabilityFix = null;
-    } else if (fre >= 60) {
-        readabilityPts = 14;
-        readabilityFix = `Flesch score ${fre} — good but could be more readable. Shorten sentences.`;
-    } else if (fre >= 50) {
-        readabilityPts = 8;
-        readabilityFix = `Flesch score ${fre} — fairly difficult. Break up long sentences and paragraphs.`;
+    // --- Readability (15 pts) ---
+    const readabilityOk = fre >= 50;
+    check("Readability", `Flesch Reading Ease (${fre})`, readabilityOk ? 15 : 0, 15, readabilityOk, readabilityOk ? null : "Simplify text (break up long sentences)");
+
+    // --- Link Profile (20 pts) ---
+    const hasInternal = linkResults.internal_link_count > 0;
+    const hasExternal = linkResults.external_link_count > 0;
+    const noToxic = !linkResults.warnings.some(w => w.includes("Unoptimized anchor text"));
+    check("Link Profile", "Internal links present", hasInternal ? 8 : 0, 8, hasInternal, hasInternal ? null : "Add internal links to other posts");
+    check("Link Profile", "External links present", hasExternal ? 8 : 0, 8, hasExternal, hasExternal ? null : "Add external links to authority sites");
+    check("Link Profile", "No toxic anchor text", noToxic ? 4 : 0, 4, noToxic, noToxic ? null : "Fix generic anchor texts like 'click here'");
+
+    // --- Snippet Readiness (10 pts) ---
+    const hasSnippets = snippetResults.total_optimized_snippets > 0;
+    check("Snippet Readiness", "Featured snippet optimized paragraph", hasSnippets ? 10 : 0, 10, hasSnippets, hasSnippets ? null : "Optimize a paragraph directly under a question H2/H3 to 40-60 words.");
+
+    // --- Topical Authority (35 pts) ---
+    if (!semanticResults) {
+        check("Topical Authority", "Semantic Coverage", 0, 35, false, "Provide expected_terms for topical authority scoring");
     } else {
-        readabilityPts = 0;
-        readabilityFix = `Flesch score ${fre} — too difficult for most readers. Simplify significantly.`;
+        const scorePercent = semanticResults.coverage_score_percent;
+        const semanticEarned = Math.round((scorePercent / 100) * 35);
+        check("Topical Authority", `Semantic Coverage (${scorePercent}%)`, semanticEarned, 35, scorePercent >= 80, scorePercent >= 80 ? null : "Include more related semantic terms (LSI)");
     }
-    check("Readability", `Flesch Reading Ease (${fre})`, readabilityPts, 20,
-        readabilityPts >= 14, readabilityFix);
 
-    // ─── Max possible (reduces when no keyword provided) ─────────────────────
-    const maxPossible = kw ? 100 : 70; // 30 keyword pts unavailable without kw
+    // ─── Calculate Max Possible ────────────────────────────────────────────────
+    let maxPossible = 150;
+    if (!kw) maxPossible -= 25; // 25 keyword points unavailable
+    if (!semanticResults) maxPossible -= 35; // 35 semantic points unavailable
+
     const score = Math.round((totalEarned / maxPossible) * 100);
     const cappedScore = Math.min(score, 100);
 
@@ -244,16 +223,14 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     else if (cappedScore >= 40) { grade = "D"; gradeLabel = "Poor"; }
     else { grade = "F"; gradeLabel = "Critical issues"; }
 
-    // ─── Category summaries ────────────────────────────────────────────────────
-    const categories = ["Technical SEO", "Keyword Optimisation", "Content Structure", "Readability"];
+    const categories = ["Technical SEO", "Keyword Optimisation", "Content Structure", "Readability", "Link Profile", "Snippet Readiness", "Topical Authority"];
     const categoryScores = categories.map((cat) => {
         const catChecks = checks.filter((c) => c.category === cat);
         const earned = catChecks.reduce((s, c) => s + c.earned, 0);
         const max = catChecks.reduce((s, c) => s + c.max, 0);
-        return { category: cat, score: earned, max_score: max, percent: Math.round((earned / max) * 100) };
-    });
+        return { category: cat, score: earned, max_score: max, percent: max > 0 ? Math.round((earned / max) * 100) : 0 };
+    }).filter(c => c.max_score > 0);
 
-    // ─── Prioritised fixes (fails only, sorted by points available) ──────────
     const fixes = checks
         .filter((c) => !c.passed && c.fix)
         .sort((a, b) => b.max - a.max)
@@ -263,7 +240,8 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
         score: cappedScore,
         grade,
         grade_label: gradeLabel,
-        keyword_scoring_active: !!kw,
+        total_raw_points: totalEarned,
+        max_raw_points: maxPossible,
         category_breakdown: categoryScores,
         all_checks: checks.map(({ category, label, earned, max, passed }) => ({
             category, label, earned, max, passed,
