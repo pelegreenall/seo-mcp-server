@@ -50,6 +50,9 @@ If the content contains links and you don't know which site it's for, also ask f
 | Author, dates, experience, source quality (E-E-A-T) | `check_eeat_signals` |
 | Search intent match (informational vs commercial etc.) | `check_meta_tags` (validate) or `suggest_meta_tags` (rewrite) |
 | How the SERP listing will look | `check_seo_preview` |
+| Low CTR / impressions but no clicks | `check_meta_tags` (rewrite risk + width), then `suggest_meta_tags` (assets + scoring) |
+| Will Google rewrite my title? | `check_meta_tags` → `title_rewrite_risk` |
+| Score a title I wrote | `suggest_meta_tags` with `candidate_titles` |
 | Auditing a React component file | `convert_tsx_to_html`, then the usual tools |
 
 For a quick headline result, start with `calculate_seo_score`. For a deep audit, use `analyse_content` followed by the specialist tools.
@@ -67,6 +70,7 @@ For a quick headline result, start with `calculate_seo_score`. For a deep audit,
 - Grade scale (based on percentage): **A (90–100%)** Excellent · **B (75–89%)** Good · **C (60–74%)** Needs improvement · **D (40–59%)** Poor · **F (<40%)** Critical
 - **Remember**: The mega score scales automatically. Topical Authority (35 pts) is excluded when `expected_terms` is not provided, Keyword Optimisation (25 pts) when `primary_keyword` is not provided, and Structured Data (15 pts) for non-HTML input. The percentage is adjusted so grades stay consistent.
 - The score covers **10 categories** out of a 215-point maximum (200 for non-HTML): Technical SEO (20), Keyword Optimisation (25), Content Structure (25), Readability (15), Link Profile (20), Snippet Readiness (10), Topical Authority (35), AI Retrievability (25), E-E-A-T Signals (25), Structured Data (15).
+- `scoring_version` identifies the rubric that produced the score. Version 2 measures title and meta width in pixels rather than characters, so a score is only comparable with another of the same version
 - `sub_scores` gives the standalone percentage for AI Retrievability, E-E-A-T and Structured Data — quote these when the user asks specifically about AI visibility or trust signals.
 - Pass `site_domain` whenever the content is for a site other than veritly.co, or internal links will be counted as external and Link Profile + E-E-A-T citation scores will both be wrong.
 
@@ -84,9 +88,11 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
 - Check `summary.status` first: `"Pass"`, `"Needs minor fixes"`, or `"Needs attention"`
 - Present `title_tag.issues` and `meta_description.issues` as a clear action list
 - If `open_graph.has_og_tags` is `false`, mention that OG tags are missing (important for social sharing)
-- Key thresholds:
-  - Title: **30–60 characters** — under 30 is too short, over 60 gets truncated in SERPs
-  - Meta description: **120–160 characters** — under 70 is too short, over 160 gets truncated
+- **Judge length by `pixel_width`, not `char_count`.** Google truncates on rendered width, so character counts are unreliable — two 60-character titles can differ threefold on screen. The tools now measure both; quote pixels.
+  - Title: **~600px** limit. Under ~60% used is wasted space, over 95% is borderline
+  - Meta description: **~920px** limit
+  - `renders_as` shows the listing as Google will display it, and `lost_to_truncation` names the words that never appear — lead with those
+- `title_rewrite_risk` predicts whether Google replaces your title with something else (often the H1). Any `High` or `Very high` is worth fixing before publishing, since a rewritten title means the copy never reaches the SERP. Each entry in `triggers` is a documented Google reason: over-width, repeated keywords, separator stuffing, title diverging from the H1, ALL CAPS, or a generic placeholder
 - `detected_intent` plus `title_tag.intent_aligned` / `meta_description.intent_aligned` flag a mismatch between the keyword's intent and the copy — a Commercial keyword ("best CRM") with a purely explanatory title will be flagged here, with suggested intent words in the issue text
 
 
@@ -103,10 +109,19 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
 - Always flag `long_sentences` (>25 words) directly to the user with suggested splits
 
 ### `suggest_meta_tags`
-- Use the first `title_suggestions` entry as the primary recommendation
-- Check `within_limit` on both title (60 chars) and meta description (160 chars)
-- Present the `url_slug_suggestion` alongside the meta tags
-- Suggestions are shaped by search intent, inferred from the primary keyword. Pass `target_intent` (`Informational` / `Transactional` / `Commercial` / `Navigational`) to override it when the inference is wrong — e.g. a keyword containing "get" is read as Transactional even in an explanatory guide
+**This tool no longer emits formula titles, and there is no `title_suggestions` field.** It supplies raw material and grades drafts; you write the copy.
+
+The loop is:
+1. Read `distinguishing_assets` — quantified facts pulled from the draft (figures, sample sizes, dates). These are what competitors cannot copy.
+2. **Write two or three titles yourself**, built around those facts rather than around the keyword alone.
+3. Call the tool again with `candidate_titles` to score them — and `competitor_titles` if the user can supply what currently ranks, which enables the differentiation check.
+
+- `title_scores` ranks every candidate by `click_appeal_score` (0–100) with per-signal `findings`. Present the negative findings as the rewrite brief.
+- Scoring bands: **≥75** strong · **55–74** workable · **35–54** weak · **<35** actively costs the click
+- Penalised: truncation, template phrasing ("a complete guide", "everything you need to know"), no numeral, buried keyword, phrasing shared with competitor titles, clickbait
+- If `distinguishing_assets` comes back empty, say so plainly — a draft with no concrete facts is a content problem before it is a title problem, and no title can be more specific than the page behind it
+- `meta_description_source` is drawn from the draft's own copy where possible. Treat it as a starting sentence to edit, not a finished description
+- Still shaped by search intent; pass `target_intent` to override a wrong inference
 
 ### `check_heading_structure`
 - Present `heading_tree` as a visual outline to the user
@@ -116,6 +131,11 @@ Focus on `audit_checklist` — each item is `true` (pass), `false` (fail), or `"
 - Requires `expected_terms`. If the user has not provided LSI keywords, ask them first or generate them only when explicitly requested.
 - A score of ≥80% is Excellent.
 - Explicitly list the missing terms so the user can weave them into the copy.
+
+### `check_seo_preview`
+- `serp_render_preview` shows how the listing is expected to render — show it to the user, it communicates better than any metric
+- Pixel widths are estimates derived from Arial metrics. Treat anything within ~5% of a limit as borderline rather than a hard pass or fail, and say so
+- An `Under-using space` status is a real finding, not a pass — unused width is free SERP real estate
 
 ### `check_ai_retrievability`
 This is the tool for "will AI Overviews / ChatGPT cite this?" It analyses content **chunk by chunk** (one chunk per H2), because answer engines retrieve a single section, not the page.
@@ -136,6 +156,8 @@ This is the tool for "will AI Overviews / ChatGPT cite this?" It analyses conten
 - `node_validation` lists `missing_required`, `missing_recommended` and hard `errors` per schema node
 - **`consistency_with_visible_content` is the most important section.** A schema `headline` that contradicts the H1, or FAQ/HowTo content that isn't visible on the page, is a Google policy violation and a manual-action risk — not merely a lost rich result. Flag any failure here as urgent
 - `recommended_types` suggests schema the content's structure calls for (3+ question headings → FAQPage, step headings → HowTo)
+- `serp_footprint` reframes schema as visible SERP real estate — star ratings, price, breadcrumbs, video thumbnails. A physically bigger listing takes clicks from neighbours regardless of copy quality. `earned_now` is what the page already gets, `available_but_missing` is what its content would support, and `unused_width` flags a title or description leaving free space on the table
+- Respect the `caveat` fields: Google has narrowed FAQ and HowTo rich results, so those may be indexed without granting the visual expansion. Recommend them for semantic value and tell the user to verify current eligibility rather than promising a rich result
 - When markup is missing or invalid, the result includes `suggested_jsonld` — a ready-to-paste stub. Offer it to the user, and tell them to replace every `REPLACE —` placeholder
 - Always finish by recommending they validate in Google's Rich Results Test
 
@@ -209,4 +231,6 @@ Several tools classify the primary keyword into one of four intents and check th
 - Don't flag `N/A` values as issues — they simply mean the check doesn't apply to the content type
 - **Pass `site_domain` on `calculate_seo_score`, `analyze_links` and `check_eeat_signals`** whenever the content isn't for veritly.co. The default exists for convenience, not correctness
 - `check_structured_data` and the Structured Data category need HTML. For a Markdown or .docx draft, run it after the content is converted, or use the `suggested_jsonld` stub as a publishing to-do
+- **Never quote character counts as a limit.** Google truncates on pixel width; `char_count` is reported for reference only
+- For a low-CTR complaint, check `title_rewrite_risk` first — if Google is replacing the title, rewriting it differently changes nothing until the triggers are fixed
 - When a user asks about "AI search", "ChatGPT visibility", "AI Overviews" or "getting cited by AI", `check_ai_retrievability` is the tool — not `check_semantic_coverage`

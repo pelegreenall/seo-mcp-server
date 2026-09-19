@@ -20,7 +20,7 @@ It covers classic on-page SEO (meta tags, headings, keyword placement, readabili
 | Tool | What it does |
 |---|---|
 | `check_ai_retrievability` | Scores content **chunk by chunk** (one chunk per H2) for AI Overview / ChatGPT / Perplexity citation — self-contained sections, orphan pronoun openers, quantified claims, answer-first paragraphs, chunk sizing, structured formats |
-| `check_structured_data` | Parses and validates JSON-LD, checks it **matches the visible content**, recommends missing schema types, returns a ready-to-paste stub |
+| `check_structured_data` | Parses and validates JSON-LD, checks it **matches the visible content**, maps schema to SERP footprint, recommends missing types, returns a ready-to-paste stub |
 | `check_eeat_signals` | Author identification, published/modified dates and staleness, first-hand experience markers, source authority tiers, statistics stated without a citation |
 | `check_snippet_optimization` | Featured-snippet readiness of paragraphs under question headings — length *and* whether they open with the answer |
 
@@ -35,9 +35,9 @@ It covers classic on-page SEO (meta tags, headings, keyword placement, readabili
 
 | Tool | What it does |
 |---|---|
-| `check_meta_tags` | Validates an existing title tag and meta description, including search intent alignment |
-| `suggest_meta_tags` | Generates title, meta description, and URL slug suggestions, tailored to search intent |
-| `check_seo_preview` | SERP preview for slug, title and meta description |
+| `check_meta_tags` | Validates title and meta description by **rendered pixel width**, checks search intent alignment, and predicts whether Google will rewrite the title |
+| `suggest_meta_tags` | Extracts the draft's distinguishing facts and scores title candidates for click appeal — penalising truncation, template phrasing and overlap with competitor titles |
+| `check_seo_preview` | SERP preview showing how the listing renders, with pixel-width truncation |
 
 ### Structure & readability
 
@@ -132,7 +132,7 @@ The default is `veritly.co`. If you audit content for a different site without s
 | Content Structure | 25 | Single H1, H2s present, clean hierarchy, word count |
 | AI Retrievability | 25 | Self-contained chunks, extractable claims, chunk sizing, answer-first, structured formats |
 | E-E-A-T Signals | 25 | Authorship, dates, first-hand experience, source authority, claim support |
-| Technical SEO | 20 | Title tag and meta description presence and length |
+| Technical SEO | 20 | Title and meta description presence and **rendered pixel width** |
 | Link Profile | 20 | Internal links, external links, anchor-text quality |
 | Readability | 15 | Flesch Reading Ease |
 | Structured Data | 15 | JSON-LD validity and consistency with visible content |
@@ -149,6 +149,12 @@ Categories that cannot be assessed are removed from the denominator, so grades s
 - Non-HTML input (Markdown, `.docx`) → **Structured Data (15)** excluded, since JSON-LD only exists in HTML
 
 `sub_scores` additionally reports AI Retrievability, E-E-A-T and Structured Data as standalone percentages.
+
+Results carry a `scoring_version`. Version 2 measures title and description width in pixels rather than characters — scores are only comparable within the same version.
+
+### Why pixels, not characters
+
+Google truncates on rendered width. Sixty characters of `W` is roughly 1,133px; sixty characters of `i` is roughly 266px — the first is cut off long before the limit, the second wastes two thirds of the space. Both pass a 60-character check. Widths are estimated from Arial metrics (no browser required) and are approximations: treat anything within ~5% of a limit as borderline.
 
 ---
 
