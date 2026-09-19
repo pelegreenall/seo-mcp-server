@@ -1,0 +1,17 @@
+# Dependencies — reinstall with `npm install` (package-lock.json is committed)
+node_modules/
+
+# Credentials — never commit these
+*.pem
+*.key
+.env
+.env.*
+*secret*.json
+*credential*.json
+*service_account*.json
+token.json
+
+# Scratch / local
+scratch/
+*.log
+.DS_Store
