@@ -240,6 +240,71 @@ function detectPreamble(sentence) {
   return PREAMBLE_PATTERNS.find((re) => re.test(s)) || null;
 }
 
+
+/** Lowercase, strip punctuation, collapse whitespace — for text comparison. */
+function normalise(text) {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[^a-z0-9'\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Content words of a string, as a Set (drops words of 2 chars or fewer). */
+function tokenSet(text) {
+  return new Set(normalise(text).split(" ").filter((w) => w.length > 2));
+}
+
+/**
+ * Jaccard overlap of two strings' content words, 0-1.
+ * Shared by check_structured_data (schema headline vs H1) and check_meta_tags
+ * (title vs H1 divergence, a Google title-rewrite trigger).
+ */
+function similarity(a, b) {
+  const setA = tokenSet(a);
+  const setB = tokenSet(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let shared = 0;
+  setA.forEach((w) => {
+    if (setB.has(w)) shared++;
+  });
+  return shared / new Set([...setA, ...setB]).size;
+}
+
+/**
+ * Patterns for a concrete, quotable fact: a figure, date, percentage or
+ * currency amount. These are what AI answers quote and what makes a title
+ * specific, so both check_ai_retrievability and suggest_meta_tags use them.
+ */
+const QUANTIFIED_PATTERNS = [
+  /\d+(?:\.\d+)?\s?%/,
+  /\bper cent\b/i,
+  /[$£€¥]\s?\d/,
+  /\b(?:19|20)\d{2}\b/,
+  /\b\d[\d,]*(?:\.\d+)?\s*(?:million|billion|trillion|thousand|bn|m\b|k\b|x\b|times|percent|percentage points|bps|ms|seconds|minutes|hours|days|weeks|months|years|users|customers|respondents|participants|sites|pages|words|teams|companies|businesses|clients|projects|tools|cases|studies|sources|steps|factors|reasons)\b/i,
+  /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
+  /\b\d+(?:\.\d+)?\s*(?:out of|in|of)\s*\d+/i,
+];
+
+/** True if the sentence contains a figure, date, percentage or currency amount. */
+function hasQuantifiedClaim(sentence) {
+  return QUANTIFIED_PATTERNS.some((re) => re.test(sentence));
+}
+
+/**
+ * Pull the sentences carrying concrete figures out of a body of text, shortest
+ * first — the most title-ready facts a draft contains.
+ */
+function extractQuantifiedClaims(text, limit = 10) {
+  return splitSentences(text)
+    .filter(hasQuantifiedClaim)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 15 && s.length < 300)
+    .sort((a, b) => a.length - b.length)
+    .slice(0, limit);
+}
+
 /** Strip protocol, www. and trailing slash from a domain or URL. */
 function normalizeDomain(input) {
   if (!input) return null;
@@ -350,6 +415,11 @@ module.exports = {
   getSections,
   isQuestionHeading,
   detectPreamble,
+  normalise,
+  tokenSet,
+  similarity,
+  hasQuantifiedClaim,
+  extractQuantifiedClaims,
   normalizeDomain,
   hostnameOf,
   classifyHref,

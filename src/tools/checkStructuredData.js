@@ -1,4 +1,5 @@
-const { parseContent, extractPlainText, getSections } = require("../utils/content");
+const { parseContent, extractPlainText, getSections, normalise, similarity } = require("../utils/content");
+const { measureTitle, measureDescription } = require("../utils/serp");
 const { loadContent } = require("../utils/loader");
 
 const schema = {
@@ -106,31 +107,6 @@ const HEADLINE_MAX = 110;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function normalise(text) {
-    return (text || "")
-        .toLowerCase()
-        .replace(/[‘’“”]/g, "'")
-        .replace(/[^a-z0-9'\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function tokenSet(text) {
-    return new Set(normalise(text).split(" ").filter((w) => w.length > 2));
-}
-
-/** Jaccard overlap between two strings' content words. */
-function similarity(a, b) {
-    const setA = tokenSet(a);
-    const setB = tokenSet(b);
-    if (setA.size === 0 || setB.size === 0) return 0;
-    let shared = 0;
-    setA.forEach((w) => {
-        if (setB.has(w)) shared++;
-    });
-    return shared / new Set([...setA, ...setB]).size;
-}
-
 /** Collect every schema node, flattening @graph and top-level arrays. */
 function collectNodes(parsed, out = []) {
     if (Array.isArray(parsed)) {
@@ -180,6 +156,114 @@ function isValidDate(value) {
 function isAbsoluteUrl(value) {
     const text = asText(value);
     return /^https?:\/\//i.test(text);
+}
+
+
+/**
+ * Schema earns visible SERP real estate, and a physically larger listing takes
+ * clicks from its neighbours regardless of how good the copy is. This maps what
+ * the page currently earns against what its content would support.
+ */
+function assessSerpFootprint($, presentTypes, nodes, titleMetrics, descMetrics) {
+    const has = (t) => presentTypes.includes(t);
+    const nodeOf = (t) => nodes.find((n) => [].concat(n["@type"] || []).includes(t));
+
+    const current = [];
+    const missing = [];
+
+    function element(name, earned, requirement, impact, caveat) {
+        const entry = { element: name, impact };
+        if (caveat) entry.caveat = caveat;
+        if (earned) current.push(entry);
+        else missing.push({ ...entry, to_earn_it: requirement });
+    }
+
+    const ratingNode = nodes.find((n) => n.aggregateRating || [].concat(n["@type"] || []).includes("Review"));
+    element(
+        "Star rating",
+        !!ratingNode,
+        "Add AggregateRating or Review markup — only where genuine ratings exist and are visible on the page.",
+        "High — stars are the single most visually distinctive SERP element."
+    );
+
+    const productNode = nodeOf("Product");
+    element(
+        "Price and availability",
+        !!(productNode && productNode.offers),
+        "Add Product markup with an offers block carrying price, priceCurrency and availability.",
+        "High for commercial pages — price shows before the click."
+    );
+
+    element(
+        "Breadcrumb trail",
+        has("BreadcrumbList"),
+        "Add BreadcrumbList markup matching your visible breadcrumbs.",
+        "Moderate — replaces a raw URL with a readable hierarchy."
+    );
+
+    element(
+        "Video thumbnail",
+        has("VideoObject"),
+        $("video, iframe[src*='youtube'], iframe[src*='vimeo']").length > 0
+            ? "You have an embedded video — add VideoObject markup with name, description, thumbnailUrl and uploadDate."
+            : "Only applicable if the page embeds video.",
+        "High where video exists — a thumbnail dominates the listing."
+    );
+
+    element(
+        "Expandable FAQ rows",
+        has("FAQPage"),
+        "Add FAQPage markup, with every question and answer visible on the page.",
+        "Variable — adds vertical space when granted.",
+        "Google narrowed FAQ rich results to mainly authoritative health and government sites, so a general site may get the markup indexed without the visual expansion. Verify current eligibility before counting on it — the markup still helps semantic and AI understanding either way."
+    );
+
+    element(
+        "Step carousel",
+        has("HowTo"),
+        "Add HowTo markup if the page genuinely documents a procedure.",
+        "Moderate — verify current HowTo rich-result eligibility, which Google has also changed.",
+        "HowTo rich results have been restricted on some surfaces. Treat as semantic value first, visual footprint second."
+    );
+
+    const siteNode = nodeOf("WebSite");
+    element(
+        "Sitelinks searchbox",
+        !!(siteNode && siteNode.potentialAction),
+        "Add WebSite markup with a SearchAction potentialAction — site-wide, not per page.",
+        "Low per page, useful for brand queries."
+    );
+
+    const articleNode = nodes.find((n) => [].concat(n["@type"] || []).some((t) => /Article|BlogPosting|NewsArticle/.test(t)));
+    element(
+        "Article thumbnail",
+        !!(articleNode && articleNode.image),
+        "Add an absolute image URL to your Article/BlogPosting markup.",
+        "Moderate on mobile, where a thumbnail sits beside the listing."
+    );
+
+    element(
+        "Favicon",
+        $('link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').length > 0,
+        "Declare a favicon with <link rel=\"icon\">. It renders next to every result.",
+        "Low individually, but its absence looks unfinished beside competitors."
+    );
+
+    // Footprint you get from copy length alone, not from schema.
+    const widthNotes = [];
+    if (titleMetrics.status === "Under-using space") {
+        widthNotes.push(`The title uses only ${titleMetrics.width_used_percent}% of the available width — roughly ${Math.round(titleMetrics.pixel_limit - titleMetrics.pixel_width)}px of free space that costs nothing to fill.`);
+    }
+    if (descMetrics.status === "Under-using space") {
+        widthNotes.push(`The meta description uses only ${descMetrics.width_used_percent}% of its width — the cheapest footprint gain available, and it needs no markup at all.`);
+    }
+
+    return {
+        earned_now: current.length ? current : ["No rich-result elements currently earned."],
+        available_but_missing: missing,
+        unused_width: widthNotes.length ? widthNotes : ["Title and description already use their available width well."],
+        note: "A bigger listing takes clicks from neighbouring results independent of copy quality. Only mark up what is genuinely on the page — fabricated ratings or hidden FAQs are a policy violation, not a shortcut.",
+    };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -503,6 +587,11 @@ async function handler({ content, filepath, page_url, author_name, organisation_
         mainEntityOfPage: { "@type": "WebPage", "@id": page_url || "https://REPLACE.example.com/this-page" },
     };
 
+    // ─── SERP footprint ───────────────────────────────────────────────────────
+    const titleMetrics = measureTitle(titleTag);
+    const descMetrics = measureDescription($('meta[name="description"]').attr("content") || null);
+    const serpFootprint = assessSerpFootprint($, presentTypes, nodes, titleMetrics, descMetrics);
+
     // ─── Score components (out of 100) ────────────────────────────────────────
     const hasAnySchema = nodes.length > 0;
     const allNodesValid = nodeReports.length > 0 && nodeReports.every((n) => n.valid);
@@ -582,6 +671,7 @@ async function handler({ content, filepath, page_url, author_name, organisation_
             ? consistencyChecks
             : ["No cross-checkable schema types found (Article, FAQPage, HowTo or Product)."],
         recommended_types: recommendations.length ? recommendations : ["Schema coverage looks appropriate for this content."],
+        serp_footprint: serpFootprint,
         score_components: components,
         suggested_jsonld: hasAnySchema && allNodesValid ? undefined : suggestedStub,
         tips: [

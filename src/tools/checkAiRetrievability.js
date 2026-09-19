@@ -5,6 +5,7 @@ const {
     countWords,
     isQuestionHeading,
     detectPreamble,
+    hasQuantifiedClaim,
 } = require("../utils/content");
 const { loadContent } = require("../utils/loader");
 
@@ -73,16 +74,6 @@ function detectOrphanOpener(sentence) {
 
 // ─── Extractable claim detection ──────────────────────────────────────────────
 
-const QUANTIFIED = [
-    /\d+(?:\.\d+)?\s?%/,
-    /\bper cent\b/i,
-    /[$£€¥]\s?\d/,
-    /\b(?:19|20)\d{2}\b/,
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:million|billion|trillion|thousand|bn|m\b|k\b|x\b|times|percent|percentage points|bps|ms|seconds|minutes|hours|days|weeks|months|years|users|customers|respondents|participants|sites|pages|words)\b/i,
-    /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
-    /\b\d+(?:\.\d+)?\s*(?:out of|in)\s*\d+/i,
-];
-
 const COMMON_CAPITALISED = new Set([
     "The", "A", "An", "I", "We", "You", "It", "This", "That", "These", "Those",
     "If", "When", "While", "But", "And", "Or", "For", "So", "In", "On", "At",
@@ -91,10 +82,6 @@ const COMMON_CAPITALISED = new Set([
     "Where", "Which", "Most", "Many", "Some", "All", "Each", "Every", "Both",
     "After", "Before", "Once", "Because", "Although", "However", "Instead",
 ]);
-
-function hasQuantifiedClaim(sentence) {
-    return QUANTIFIED.some((re) => re.test(sentence));
-}
 
 function namedEntities(sentence) {
     const words = sentence.split(/\s+/);
