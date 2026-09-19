@@ -1,11 +1,12 @@
 const path = require("path");
 const { parseContent } = require("../utils/content");
+const { measureTitle, measureDescription } = require("../utils/serp");
 const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "check_seo_preview",
     description:
-        "Comprehensive validator for the 'Big Three' of on-page SEO: Slug, Title, and Meta Description. Checks character limits, keyword placement, and URL structure.",
+        "Comprehensive validator for the 'Big Three' of on-page SEO: Slug, Title, and Meta Description. Measures rendered pixel width (how Google actually truncates) alongside keyword placement and URL structure, and shows exactly how the listing will render.",
     inputSchema: {
         type: "object",
         properties: {
@@ -77,11 +78,14 @@ async function handler({ content, filepath, primary_keyword, slug, meta_title, m
     // ── 2. Title Check ─────────────────────────────────────────────────────────
     const titleText = meta_title || $("title").text().trim() || null;
     const titleIssues = [];
+    const titleMetrics = measureTitle(titleText);
     if (!titleText) {
         titleIssues.push("No title found");
     } else {
-        if (titleText.length < 30) titleIssues.push(`Title is too short (${titleText.length} chars) — aim for 30–60`);
-        if (titleText.length > 60) titleIssues.push(`Title is too long (${titleText.length} chars) — may be truncated`);
+        // Width, not character count — Google truncates on rendered pixels.
+        if (titleMetrics.truncated || titleMetrics.status === "Borderline" || titleMetrics.status === "Under-using space") {
+            titleIssues.push(titleMetrics.advice);
+        }
         if (kw && !titleText.toLowerCase().includes(kw)) titleIssues.push(`Keyword "${primary_keyword}" missing from title`);
         if (/^(home|page|untitled)/i.test(titleText)) titleIssues.push("Title is generic");
     }
@@ -89,11 +93,13 @@ async function handler({ content, filepath, primary_keyword, slug, meta_title, m
     // ── 3. Meta Description Check ──────────────────────────────────────────────
     const descText = meta_description || $('meta[name="description"]').attr("content")?.trim() || null;
     const descIssues = [];
+    const descMetrics = measureDescription(descText);
     if (!descText) {
         descIssues.push("No meta description found");
     } else {
-        if (descText.length < 120) descIssues.push(`Description is short (${descText.length} chars) — aim for 120–160`);
-        if (descText.length > 160) descIssues.push(`Description is long (${descText.length} chars) — may be truncated`);
+        if (descMetrics.truncated || descMetrics.status === "Borderline" || descMetrics.status === "Under-using space") {
+            descIssues.push(descMetrics.advice);
+        }
         if (kw && !descText.toLowerCase().includes(kw)) descIssues.push(`Keyword "${primary_keyword}" missing from description`);
         
         const first20 = descText.split(" ").slice(0, 20).join(" ").toLowerCase();
@@ -111,14 +117,19 @@ async function handler({ content, filepath, primary_keyword, slug, meta_title, m
             passed: slugIssues.length === 0,
         },
         title: {
-            text: titleText,
+            ...titleMetrics,
             issues: titleIssues.length ? titleIssues : ["Looks good"],
             passed: titleIssues.length === 0,
         },
         meta_description: {
-            text: descText,
+            ...descMetrics,
             issues: descIssues.length ? descIssues : ["Looks good"],
             passed: descIssues.length === 0,
+        },
+        serp_render_preview: {
+            title: titleMetrics.renders_as,
+            description: descMetrics.renders_as,
+            note: "How the listing is expected to render on desktop. Pixel widths are estimates from Arial metrics — treat anything within 5% of the limit as borderline.",
         },
         summary: {
             total_issues: allIssues.length,

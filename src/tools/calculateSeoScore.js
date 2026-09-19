@@ -12,6 +12,7 @@ const { handler: checkSnippetOptimization } = require("./checkSnippetOptimizatio
 const { handler: checkAiRetrievability } = require("./checkAiRetrievability");
 const { handler: checkEeatSignals } = require("./checkEeatSignals");
 const { handler: checkStructuredData } = require("./checkStructuredData");
+const { measureTitle, measureDescription } = require("../utils/serp");
 
 const schema = {
     name: "calculate_seo_score",
@@ -181,14 +182,17 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
 
     // --- Technical SEO (20 pts) ---
     const hasTitle = !!titleText;
-    const titleLengthOk = titleText ? titleText.length >= 30 && titleText.length <= 60 : false;
     const hasMetaDesc = !!metaDescText;
-    const metaLengthOk = metaDescText ? metaDescText.length >= 120 && metaDescText.length <= 160 : false;
+    // Width, not character count — Google truncates on rendered pixels.
+    const titleMetrics = measureTitle(titleText);
+    const descMetrics = measureDescription(metaDescText);
+    const titleWidthOk = hasTitle && titleMetrics.status === "Good";
+    const metaWidthOk = hasMetaDesc && descMetrics.status === "Good";
 
     check("Technical SEO", "Title tag present", hasTitle ? 6 : 0, 6, hasTitle, hasTitle ? null : "Add a <title> tag");
-    check("Technical SEO", "Title length (30–60 chars)", titleLengthOk ? 5 : 0, 5, titleLengthOk, titleLengthOk ? null : "Optimize title length (30-60 chars)");
+    check("Technical SEO", `Title fits the SERP width (${titleMetrics.pixel_width}px of ~${titleMetrics.pixel_limit}px)`, titleWidthOk ? 5 : 0, 5, titleWidthOk, titleWidthOk ? null : titleMetrics.advice);
     check("Technical SEO", "Meta description present", hasMetaDesc ? 6 : 0, 6, hasMetaDesc, hasMetaDesc ? null : "Add a meta description");
-    check("Technical SEO", "Meta description length (120–160 chars)", metaLengthOk ? 3 : 0, 3, metaLengthOk, metaLengthOk ? null : "Optimize meta description length (120-160 chars)");
+    check("Technical SEO", `Meta description fits the SERP width (${descMetrics.pixel_width}px of ~${descMetrics.pixel_limit}px)`, metaWidthOk ? 3 : 0, 3, metaWidthOk, metaWidthOk ? null : descMetrics.advice);
 
     // --- Keyword Optimisation (25 pts) ---
     if (!kw) {
@@ -279,12 +283,17 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
         .map((c) => ({ priority_points: c.max, category: c.category, action: c.fix }));
 
     return {
+        scoring_version: 2,
         score: cappedScore,
         grade,
         grade_label: gradeLabel,
         total_raw_points: totalEarned,
         max_raw_points: maxPossible,
         category_breakdown: categoryScores,
+        serp_render_preview: {
+            title: titleMetrics.renders_as,
+            description: descMetrics.renders_as,
+        },
         sub_scores: {
             ai_retrievability_percent: aiResults.retrievability_score_percent,
             eeat_percent: eeatResults.eeat_score_percent,
