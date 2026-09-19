@@ -9,11 +9,14 @@ const { loadContent } = require("../utils/loader");
 const { handler: analyzeLinks } = require("./analyzeLinks");
 const { handler: checkSemanticCoverage } = require("./checkSemanticCoverage");
 const { handler: checkSnippetOptimization } = require("./checkSnippetOptimization");
+const { handler: checkAiRetrievability } = require("./checkAiRetrievability");
+const { handler: checkEeatSignals } = require("./checkEeatSignals");
+const { handler: checkStructuredData } = require("./checkStructuredData");
 
 const schema = {
     name: "calculate_seo_score",
     description:
-        "Calculate an overall SEO score (Mega Score) that aligns with modern Google algorithms. Covers Semantic Authority, Link Profile, Content Structure, and more.",
+        "Calculate an overall SEO score (Mega Score) that aligns with modern Google algorithms and AI answer engines. Covers Technical SEO, Keyword Optimisation, Content Structure, Readability, Link Profile, Snippet Readiness, Topical Authority, AI Retrievability, E-E-A-T signals and Structured Data.",
     inputSchema: {
         type: "object",
         properties: {
@@ -33,7 +36,7 @@ const schema = {
             expected_terms: {
                 type: "array",
                 items: { type: "string" },
-                description: "CRITICAL: List of LSI / related semantic terms expected in the content for Topical Authority scoring. If the user provides a primary_keyword but no expected_terms, YOU MUST use your internal knowledge to generate 5-10 highly relevant LSI keywords and pass them in here automatically.",
+                description: "Optional list of LSI / related semantic terms expected in the content for Topical Authority scoring. If not provided, Topical Authority is excluded from the score calculations to ensure grading consistency.",
             },
             meta_title: {
                 type: "string",
@@ -43,12 +46,16 @@ const schema = {
                 type: "string",
                 description: "Optional. Manually provided meta description to include in scoring.",
             },
+            site_domain: {
+                type: "string",
+                description: "Optional. The domain being audited (e.g. \"example.com\"), so absolute links to your own site count as internal rather than external.",
+            },
         },
         required: [],
     },
 };
 
-async function handler({ content, filepath, primary_keyword, expected_terms, meta_title, meta_description }) {
+async function handler({ content, filepath, primary_keyword, expected_terms, meta_title, meta_description, site_domain }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
@@ -132,8 +139,11 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
             : 0;
 
     // Run external tools
-    const linkResults = await analyzeLinks({ content, filepath });
+    const linkResults = await analyzeLinks({ content, filepath, site_domain });
     const snippetResults = await checkSnippetOptimization({ content, filepath });
+    const aiResults = await checkAiRetrievability({ content, filepath, primary_keyword });
+    const eeatResults = await checkEeatSignals({ content, filepath, site_domain });
+    const structuredResults = isHtml ? await checkStructuredData({ content, filepath }) : null;
     
     let semanticResults = null;
     if (expected_terms && expected_terms.length > 0) {
@@ -147,6 +157,26 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
     function check(category, label, earned, max, passed, fix = null) {
         totalEarned += earned;
         checks.push({ category, label, earned, max, passed, fix });
+    }
+
+    /**
+     * Fold a sub-tool's own 0-100 component breakdown into this score,
+     * rescaled to the category's point budget. The final component absorbs
+     * any rounding remainder so each category sums to exactly `categoryMax`.
+     */
+    function addScaled(category, result, categoryMax) {
+        const comps = (result.score_components || []).filter((c) => c.applicable !== false);
+        const compMax = comps.reduce((s, c) => s + c.max, 0);
+        if (compMax === 0) return;
+
+        let maxAllocated = 0;
+        comps.forEach((c, i) => {
+            const isLast = i === comps.length - 1;
+            const scaledMax = isLast ? categoryMax - maxAllocated : Math.round((c.max / compMax) * categoryMax);
+            maxAllocated += scaledMax;
+            const scaledEarned = Math.min(scaledMax, Math.round((c.earned / compMax) * categoryMax));
+            check(category, c.label, scaledEarned, scaledMax, c.passed, c.fix);
+        });
     }
 
     // --- Technical SEO (20 pts) ---
@@ -207,8 +237,20 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
         check("Topical Authority", `Semantic Coverage (${scorePercent}%)`, semanticEarned, 35, scorePercent >= 80, scorePercent >= 80 ? null : "Include more related semantic terms (LSI)");
     }
 
+    // --- AI Retrievability (25 pts) ---
+    addScaled("AI Retrievability", aiResults, 25);
+
+    // --- E-E-A-T Signals (25 pts) ---
+    addScaled("E-E-A-T Signals", eeatResults, 25);
+
+    // --- Structured Data (15 pts, HTML only) ---
+    if (structuredResults) {
+        addScaled("Structured Data", structuredResults, 15);
+    }
+
     // ─── Calculate Max Possible ────────────────────────────────────────────────
-    let maxPossible = 150;
+    let maxPossible = 215;
+    if (!structuredResults) maxPossible -= 15; // JSON-LD can't exist in Markdown/.docx
     if (!kw) maxPossible -= 25; // 25 keyword points unavailable
     if (!semanticResults) maxPossible -= 35; // 35 semantic points unavailable
 
@@ -223,7 +265,7 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
     else if (cappedScore >= 40) { grade = "D"; gradeLabel = "Poor"; }
     else { grade = "F"; gradeLabel = "Critical issues"; }
 
-    const categories = ["Technical SEO", "Keyword Optimisation", "Content Structure", "Readability", "Link Profile", "Snippet Readiness", "Topical Authority"];
+    const categories = ["Technical SEO", "Keyword Optimisation", "Content Structure", "Readability", "Link Profile", "Snippet Readiness", "Topical Authority", "AI Retrievability", "E-E-A-T Signals", "Structured Data"];
     const categoryScores = categories.map((cat) => {
         const catChecks = checks.filter((c) => c.category === cat);
         const earned = catChecks.reduce((s, c) => s + c.earned, 0);
@@ -243,6 +285,11 @@ async function handler({ content, filepath, primary_keyword, expected_terms, met
         total_raw_points: totalEarned,
         max_raw_points: maxPossible,
         category_breakdown: categoryScores,
+        sub_scores: {
+            ai_retrievability_percent: aiResults.retrievability_score_percent,
+            eeat_percent: eeatResults.eeat_score_percent,
+            structured_data_percent: structuredResults ? structuredResults.structured_data_score_percent : "N/A (non-HTML)",
+        },
         all_checks: checks.map(({ category, label, earned, max, passed }) => ({
             category, label, earned, max, passed,
         })),
