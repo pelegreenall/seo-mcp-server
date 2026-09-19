@@ -1,10 +1,10 @@
-const { parseContent, extractPlainText } = require("../utils/content");
+const { parseContent, extractPlainText, detectIntent } = require("../utils/content");
 const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "suggest_meta_tags",
     description:
-        "Generate optimised title tag, meta description, and URL slug suggestions for unpublished content based on the primary keyword, secondary keywords, and existing copy.",
+        "Generate optimised title tag, meta description, and URL slug suggestions for unpublished content based on the primary keyword, secondary keywords, search intent, and existing copy.",
     inputSchema: {
         type: "object",
         properties: {
@@ -31,6 +31,11 @@ const schema = {
                 type: "string",
                 description:
                     "Optional audience descriptor to include in title formulas (e.g. 'BI analysts')",
+            },
+            target_intent: {
+                type: "string",
+                enum: ["Informational", "Transactional", "Commercial", "Navigational"],
+                description: "Optional explicit intent type to tailor suggestions for.",
             },
         },
         required: [],
@@ -66,7 +71,7 @@ function extractRelevantSentence(text, keyword) {
     return null;
 }
 
-async function handler({ content, filepath, primary_keyword, secondary_keywords = [], target_audience }) {
+async function handler({ content, filepath, primary_keyword, secondary_keywords = [], target_audience, target_intent }) {
     const rawContent = await loadContent({ content, filepath });
 
     const { $, isHtml } = parseContent(rawContent);
@@ -83,26 +88,38 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
     const secKw = secondary_keywords.length > 0 ? toTitleCase(secondary_keywords[0]) : "";
     const currentYear = new Date().getFullYear();
 
+    const intent = target_intent || (kw ? detectIntent(kw) : "Informational");
+    const audienceText = target_audience ? ` for ${target_audience}` : "";
+
     // 1. Build title suggestions
     const titleSuggestions = [];
     if (kw) {
-        // Base title from keyword
-        let base1 = `${kwTitle}: A Complete Guide`;
-        if (base1.length <= 53) base1 += ` [${currentYear}]`;
-        titleSuggestions.push(base1);
-        
-        if (target_audience) {
-            let baseAud = `How to Master ${kwTitle} | Guide for ${toTitleCase(target_audience)}`;
-            titleSuggestions.push(baseAud);
+        if (intent === "Transactional") {
+            const cleanKwTitle = kwTitle.replace(/^(Buy|Get|Order)\s+/i, "");
+            titleSuggestions.push(`Buy ${cleanKwTitle} Online - Best Prices & Deals`);
+            titleSuggestions.push(`Get ${cleanKwTitle} - Start Your Trial/Subscription`);
+            if (secKw) titleSuggestions.push(`Order ${cleanKwTitle} | Discount on ${secKw}`);
+        } else if (intent === "Commercial") {
+            const cleanKwTitle = kwTitle.replace(/^(Best|Top|Review|Reviews|Compare|Vs)\s+/i, "");
+            titleSuggestions.push(`Best ${cleanKwTitle} Options Ranked & Reviewed [${currentYear}]`);
+            titleSuggestions.push(`${cleanKwTitle} Review: Pros, Cons & Verdict`);
+            if (secKw) titleSuggestions.push(`${cleanKwTitle} vs ${secKw} - Detailed Comparison`);
+        } else if (intent === "Navigational") {
+            titleSuggestions.push(`${kwTitle} Official Site | Login & Account`);
+            titleSuggestions.push(`${kwTitle} Portal - Access Your Dashboard`);
+        } else {
+            // Informational default
+            let base1 = `${kwTitle}: A Complete Guide`;
+            if (base1.length <= 53) base1 += ` [${currentYear}]`;
+            titleSuggestions.push(base1);
+            if (target_audience) {
+                titleSuggestions.push(`How to Master ${kwTitle} | Guide for ${toTitleCase(target_audience)}`);
+            }
+            if (secKw) {
+                titleSuggestions.push(`${kwTitle}: Top ${secKw} Strategies (${currentYear})`);
+            }
         }
-        
-        if (secKw) {
-            let baseSec = `${kwTitle}: Top ${secKw} Strategies`;
-            if (baseSec.length <= 53) baseSec += ` (${currentYear})`;
-            titleSuggestions.push(baseSec);
-        }
-
-        // Action oriented
+        // Always include an action-oriented fallback
         titleSuggestions.push(`${kwTitle}: Everything You Need to Know`);
     } else if (h1Text) {
         let t = h1Text.slice(0, 60);
@@ -121,9 +138,16 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
                 metaSuggestion = metaSuggestion.slice(0, 155).trim() + "...";
             }
         } else {
-            // Smart template fallback
-            const audienceText = target_audience ? ` for ${target_audience}` : "";
-            metaSuggestion = `Learn everything you need to know about ${kw.toLowerCase()}${audienceText}. Discover best practices, strategies, and key insights in this complete guide.`;
+            // Smart template fallbacks by intent
+            if (intent === "Transactional") {
+                metaSuggestion = `Get the best deals on ${kw.toLowerCase()}${audienceText}. Order online today to start saving and get immediate access!`;
+            } else if (intent === "Commercial") {
+                metaSuggestion = `Compare top options and choose the best ${kw.toLowerCase()}${audienceText}. Read reviews, pros & cons, and ratings before you decide.`;
+            } else if (intent === "Navigational") {
+                metaSuggestion = `Visit the official page for ${kw.toLowerCase()}${audienceText}. Access your account, login, or get official support and resources.`;
+            } else {
+                metaSuggestion = `Learn everything you need to know about ${kw.toLowerCase()}${audienceText}. Discover best practices, strategies, and key insights in this complete guide.`;
+            }
         }
     } else if (firstPara) {
         metaSuggestion = firstPara.slice(0, 155).trim() + "...";
@@ -151,6 +175,7 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
     };
 
     return {
+        target_intent: intent,
         existing_title: existingTitle,
         existing_meta_description: existingMeta,
         title_suggestions: titleSuggestions.map((t) => ({

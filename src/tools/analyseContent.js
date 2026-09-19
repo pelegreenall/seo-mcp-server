@@ -3,6 +3,8 @@ const {
     extractPlainText,
     countWords,
     keywordInText,
+    detectIntent,
+    checkIntentAlignment,
 } = require("../utils/content");
 const { loadContent } = require("../utils/loader");
 
@@ -69,6 +71,9 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
 
     // --- Keyword checks ---
     const kw = primary_keyword?.toLowerCase() || null;
+    const detectedIntent = primary_keyword ? detectIntent(primary_keyword) : null;
+    const titleAlignment = (detectedIntent && titleTag) ? checkIntentAlignment(titleTag, detectedIntent) : { aligned: true };
+    const metaAlignment = (detectedIntent && metaDesc) ? checkIntentAlignment(metaDesc, detectedIntent) : { aligned: true };
 
     const kwCountBody = kw ? keywordInText(kw, plain) : null;
     const kwDensity =
@@ -151,6 +156,7 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
         keyword_in_meta: isHtml ? (kw ? kwInMeta : "N/A") : "N/A (non-HTML)",
         heading_hierarchy_clean: hierarchyIssues.length === 0,
         word_count_sufficient: wordCount >= 700,
+        keyword_intent_aligned: kw ? (titleAlignment.aligned && metaAlignment.aligned) : "N/A",
     };
 
     return {
@@ -169,12 +175,15 @@ async function handler({ content, filepath, primary_keyword, secondary_keywords 
         keyword_analysis: kw
             ? {
                 primary_keyword,
+                detected_intent: detectedIntent,
                 count_in_body: kwCountBody,
                 density_percent: parseFloat(kwDensity),
                 in_title_or_h1: kwInTitle,
                 in_first_paragraph: kwInFirstParagraph,
                 in_h2: kwInH2,
                 in_meta_description: isHtml ? kwInMeta : "N/A",
+                title_intent_aligned: titleAlignment.aligned,
+                meta_intent_aligned: metaAlignment.aligned,
                 secondary_keywords: secondaryResults,
             }
             : "No primary keyword provided",

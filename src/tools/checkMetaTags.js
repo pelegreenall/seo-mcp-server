@@ -1,11 +1,11 @@
 const path = require("path");
-const { parseContent } = require("../utils/content");
+const { parseContent, detectIntent, checkIntentAlignment } = require("../utils/content");
 const { loadContent } = require("../utils/loader");
 
 const schema = {
     name: "check_meta_tags",
     description:
-        "Validate the existing meta title and meta description in HTML content. Checks character length, keyword presence, and common SEO issues. Use this to audit already-written meta tags rather than generate new ones.",
+        "Validate the existing meta title and meta description in HTML content. Checks character length, keyword presence, search intent alignment, and common SEO issues. Use this to audit already-written meta tags rather than generate new ones.",
     inputSchema: {
         type: "object",
         properties: {
@@ -52,6 +52,7 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     }
 
     const kw = primary_keyword?.toLowerCase() || null;
+    const detectedIntent = primary_keyword ? detectIntent(primary_keyword) : null;
 
     // ── Title tag ─────────────────────────────────────────────────────────────
 
@@ -69,6 +70,16 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
         titleIssues.push(`Primary keyword "${primary_keyword}" not found in title`);
     if (titleText && /^(home|page|untitled|welcome)/i.test(titleText))
         titleIssues.push(`Title looks generic ("${titleText}") — use a descriptive, keyword-rich title`);
+
+    // Intent alignment check for Title
+    let titleIntentAligned = true;
+    if (detectedIntent && titleText) {
+        const alignment = checkIntentAlignment(titleText, detectedIntent);
+        titleIntentAligned = alignment.aligned;
+        if (!alignment.aligned) {
+            titleIssues.push(`Title does not align with the detected "${detectedIntent}" intent — consider adding intent-specific words (e.g., ${alignment.missingTerms.slice(0, 3).join(", ")})`);
+        }
+    }
 
     // ── Meta description ──────────────────────────────────────────────────────
 
@@ -90,6 +101,16 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
             metaIssues.push(`Primary keyword not in the first 20 words of the meta description — move it earlier`);
     }
 
+    // Intent alignment check for Meta Description
+    let metaIntentAligned = true;
+    if (detectedIntent && metaDescText) {
+        const alignment = checkIntentAlignment(metaDescText, detectedIntent);
+        metaIntentAligned = alignment.aligned;
+        if (!alignment.aligned) {
+            metaIssues.push(`Meta description does not align with the detected "${detectedIntent}" intent — consider adding intent-specific words (e.g., ${alignment.missingTerms.slice(0, 3).join(", ")})`);
+        }
+    }
+
     // ── Open Graph tags (bonus check) ─────────────────────────────────────────
 
     const ogTitle = $('meta[property="og:title"]').attr("content")?.trim() || null;
@@ -100,11 +121,13 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
     const allIssues = [...titleIssues, ...metaIssues];
 
     return {
+        detected_intent: detectedIntent,
         title_tag: {
             text: titleText,
             char_count: titleText ? titleText.length : 0,
             within_limit: titleText ? titleText.length <= 60 : false,
             keyword_present: kw && titleText ? titleText.toLowerCase().includes(kw) : null,
+            intent_aligned: titleIntentAligned,
             issues: titleIssues.length > 0 ? titleIssues : ["No issues found"],
         },
         meta_description: {
@@ -112,6 +135,7 @@ async function handler({ content, filepath, primary_keyword, meta_title, meta_de
             char_count: metaDescText ? metaDescText.length : 0,
             within_limit: metaDescText ? metaDescText.length <= 160 : false,
             keyword_present: kw && metaDescText ? metaDescText.toLowerCase().includes(kw) : null,
+            intent_aligned: metaIntentAligned,
             issues: metaIssues.length > 0 ? metaIssues : ["No issues found"],
         },
         open_graph: {
